@@ -7,6 +7,11 @@ members = [
     "crates/daemon-wallet-core",
     "crates/daemon-wallet-evm",
     "crates/daemon-wallet-protocol",
+    "crates/daemon-wallet-config",
+    "crates/daemon-wallet-rpc",
+    "crates/daemon-wallet-cli",
+    "crates/daemon-wallet-tui",
+    "crates/daemon-wallet-daemon",
 ]
 
 [workspace.package]
@@ -21,11 +26,38 @@ repository = "https://github.com/CounterFinance/daemonwallet"
 daemon-wallet-vault = { path = "crates/daemon-wallet-vault" }
 daemon-wallet-core = { path = "crates/daemon-wallet-core" }
 daemon-wallet-evm = { path = "crates/daemon-wallet-evm" }
+daemon-wallet-protocol = { path = "crates/daemon-wallet-protocol" }
 # alloy-primitives is pinned to a cached, audited point release so the wire and
 # domain surfaces share one definition of Address/U256/B256/Bytes; the serde
 # feature lets those primitives ride inside CBOR manifests and JSON wire frames
 alloy-primitives = { version = "=1.6.1", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 ciborium = "0.2.2"
 thiserror = "2.0"
 zeroize = { version = "1.8", features = ["derive"] }
+# random UUIDs back the opaque object ids in daemon-wallet-core
+uuid = { version = "1.28", features = ["v4"] }
+# alloy EVM stack, confined to daemon-wallet-evm. These main-repo crates require
+# alloy-primitives ^1.6.0, which the =1.6.1 pin above satisfies, so the pin holds.
+# k256 enables secp256k1 signer-recovery helpers on the consensus tx envelope,
+# which the rpc layer and this crate's round-trip tests rely on.
+alloy-consensus = { version = "2.5.0", features = ["k256"] }
+alloy-eips = "2.5.0"
+alloy-signer = "2.5.0"
+alloy-signer-local = { version = "2.5.0", features = ["mnemonic"] }
+# alloy-dyn-abi is part of alloy-core and versions in lockstep with
+# alloy-primitives, so it is pinned to =1.6.1 to match the primitives pin.
+alloy-dyn-abi = { version = "=1.6.1", features = ["eip712"] }
+# internal app-layer crates
+daemon-wallet-config = { path = "crates/daemon-wallet-config" }
+daemon-wallet-rpc = { path = "crates/daemon-wallet-rpc" }
+# app-layer third-party deps (alloy stays confined to evm + rpc)
+clap = { version = "4.5", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+ureq = { version = "2.10", features = ["json"] }
+rpassword = "7.3"
+anyhow = "1.0"
+hex = "0.4"
+bip39 = "2.1"

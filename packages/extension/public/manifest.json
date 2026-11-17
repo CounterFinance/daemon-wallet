@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Daemon Wallet",
   "version": "0.1.0",
-  "description": "A Chrome extension for wallets",
+  "description": "Dumb-pipe bridge between DApps and the Daemon Wallet native host. Private keys never enter the browser.",
   "action": {
     "default_popup": "index.html",
     "default_icon": {
@@ -10,8 +10,27 @@
       "128": "icons/icon-128.png"
     }
   },
+  "icons": {
+    "64": "icons/icon-64.png",
+    "128": "icons/icon-128.png"
+  },
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["inpage.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ],
   "permissions": ["nativeMessaging"]
 }

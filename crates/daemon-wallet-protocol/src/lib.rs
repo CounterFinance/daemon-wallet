@@ -28,11 +28,13 @@
 
 pub mod client;
 pub mod dto;
+pub mod transport;
 
 pub use dto::{
     AccountDto, AccountRef, AccountSourceKind, ApprovalDto, ApprovalKind, GroupDto, Origin,
     SignatureDto, StatusDto, TxRequestDto, TypedDataDto,
 };
+pub use transport::{MAX_FRAME_LEN, UnixTransport, read_request, serve_connection, write_response};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -60,6 +62,15 @@ pub struct RequestId(pub u64);
 /// constructed, serialised, and dropped, never held in large hot collections,
 /// so boxing one field to equalise sizes would add indirection for no real
 /// gain. The lint is allowed deliberately.
+///
+/// This enum is the full wire vocabulary. The management control channel
+/// (CLI<->daemon) only drives the five operations exposed as [`client::Client`]
+/// convenience methods: `Unlock`, `Lock`, `Status`, `ListTree`, `ListAccounts`.
+/// The `Connect`, `Disconnect`, `SignTransaction`, `SignTypedData`,
+/// `PersonalSign`, `ApproveRequest`, and `RejectRequest` variants are the
+/// reserved browser-approval vocabulary: kept here so the contract is complete,
+/// but intentionally NOT surfaced as `Client` methods, since no server
+/// implements them over that control socket yet.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
@@ -132,6 +143,12 @@ pub enum Request {
 ///
 /// Failures are carried out of band as [`Error`] in the
 /// [`ResponseEnvelope::result`], not as a variant here.
+///
+/// Like [`Request`], this is the full wire vocabulary. The `Connected`,
+/// `Disconnected`, `Pending`, `Signature`, `Approved`, and `Rejected` variants
+/// answer the reserved browser-approval requests and are intentionally NOT
+/// reachable through a [`client::Client`] convenience method on the management
+/// control channel.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 #[non_exhaustive]

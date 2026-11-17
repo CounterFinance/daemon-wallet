@@ -45,7 +45,7 @@ macro_rules! id_newtype {
             /// The returned value is prefixed with a short type tag so ids are
             /// self-describing in logs and vault listings.
             pub fn generate() -> Self {
-                todo!()
+                Self(format!("{}_{}", $prefix, uuid::Uuid::new_v4()))
             }
 
             /// Borrow the opaque token as a string slice.
@@ -95,3 +95,42 @@ id_newtype!(
     AccountId,
     "acct"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_is_prefixed_and_unique() {
+        let a = SeedId::generate();
+        let b = SeedId::generate();
+        assert_ne!(a, b);
+        assert!(a.as_str().starts_with("seed_"));
+        assert_eq!(SeedId::prefix(), "seed");
+    }
+
+    #[test]
+    fn each_kind_has_its_own_prefix() {
+        assert!(GroupId::generate().as_str().starts_with("grp_"));
+        assert!(KeyId::generate().as_str().starts_with("key_"));
+        assert!(AccountId::generate().as_str().starts_with("acct_"));
+    }
+
+    #[test]
+    fn from_raw_round_trips_and_is_opaque() {
+        let id = GroupId::from_raw("grp_fixed");
+        assert_eq!(id.as_str(), "grp_fixed");
+        assert_eq!(id.to_string(), "grp_fixed");
+        // Equality is the only comparison the contract promises.
+        assert_eq!(id, GroupId::from_raw("grp_fixed"));
+    }
+
+    #[test]
+    fn serde_round_trips_as_plain_string() {
+        let id = AccountId::from_raw("acct_7");
+        let mut buf = Vec::new();
+        ciborium::into_writer(&id, &mut buf).unwrap();
+        let back: AccountId = ciborium::from_reader(&buf[..]).unwrap();
+        assert_eq!(id, back);
+    }
+}

@@ -180,23 +180,179 @@ pub struct SignatureDto {
 impl From<&daemon_wallet_core::Account> for AccountDto {
     /// Flatten a core account into its wire view.
     fn from(value: &daemon_wallet_core::Account) -> Self {
-        let _ = value;
-        todo!()
+        let source_kind = match value.source {
+            daemon_wallet_core::AccountSource::Derived { .. } => AccountSourceKind::Derived,
+            daemon_wallet_core::AccountSource::Imported { .. } => AccountSourceKind::Imported,
+        };
+        Self {
+            id: value.id.to_string(),
+            chain: value.chain,
+            address: value.address.clone(),
+            label: value.label.clone(),
+            hidden: value.hidden,
+            source_kind,
+            group: value.group.to_string(),
+            tags: value.tags.clone(),
+        }
     }
 }
 
 impl From<&daemon_wallet_core::Group> for GroupDto {
     /// Flatten a core group node into its wire view.
     fn from(value: &daemon_wallet_core::Group) -> Self {
-        let _ = value;
-        todo!()
+        Self {
+            id: value.id.to_string(),
+            parent: value.parent.as_ref().map(|p| p.to_string()),
+            children: value.children.iter().map(|c| c.to_string()).collect(),
+            name: value.name.clone(),
+            notes: value.notes.clone(),
+            tags: value.tags.clone(),
+        }
     }
 }
 
 impl From<&daemon_wallet_evm::Signature> for SignatureDto {
     /// Convert an EVM signature into its wire view.
     fn from(value: &daemon_wallet_evm::Signature) -> Self {
-        let _ = value;
-        todo!()
+        Self {
+            r: value.r,
+            s: value.s,
+            y_parity: value.y_parity,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use daemon_wallet_core::id::{AccountId, GroupId, KeyId};
+    use daemon_wallet_core::{Account, AccountSource, Group};
+
+    #[test]
+    fn account_flattens_ids_to_strings_and_maps_source_kind() {
+        let account = Account {
+            id: AccountId::from_raw("acct_42"),
+            chain: ChainKind::Evm,
+            address: ChainAddress::new("0xabc"),
+            source: AccountSource::Imported {
+                key: KeyId::from_raw("key_1"),
+            },
+            group: GroupId::from_raw("grp_7"),
+            label: "Checking".into(),
+            hidden: true,
+            do_not_rederive: false,
+            notes: "ignored on the wire".into(),
+            tags: vec!["hot".into()],
+        };
+        let dto = AccountDto::from(&account);
+        assert_eq!(
+            dto,
+            AccountDto {
+                id: "acct_42".into(),
+                chain: ChainKind::Evm,
+                address: ChainAddress::new("0xabc"),
+                label: "Checking".into(),
+                hidden: true,
+                source_kind: AccountSourceKind::Imported,
+                group: "grp_7".into(),
+                tags: vec!["hot".into()],
+            }
+        );
+
+        // Wire shape: ids are plain strings, address is a bare string, the
+        // source kind is a snake_case tag, and domain-only fields are absent.
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["id"], "acct_42");
+        assert_eq!(json["group"], "grp_7");
+        assert_eq!(json["address"], "0xabc");
+        assert_eq!(json["chain"], "Evm");
+        assert_eq!(json["source_kind"], "imported");
+        assert!(json.get("notes").is_none());
+        assert!(json.get("do_not_rederive").is_none());
+    }
+
+    #[test]
+    fn derived_account_maps_to_derived_source_kind() {
+        use daemon_wallet_core::DerivationPath;
+        use daemon_wallet_core::id::SeedId;
+        let account = Account {
+            id: AccountId::from_raw("acct_1"),
+            chain: ChainKind::Evm,
+            address: ChainAddress::new("0xdef"),
+            source: AccountSource::Derived {
+                seed: SeedId::from_raw("seed_1"),
+                index: 0,
+                path: DerivationPath::from_raw("m/44'/60'/0'/0/0"),
+            },
+            group: GroupId::from_raw("grp_1"),
+            label: "Acct".into(),
+            hidden: false,
+            do_not_rederive: false,
+            notes: String::new(),
+            tags: vec![],
+        };
+        assert_eq!(
+            AccountDto::from(&account).source_kind,
+            AccountSourceKind::Derived
+        );
+    }
+
+    #[test]
+    fn group_flattens_structural_ids_to_strings() {
+        let group = Group {
+            id: GroupId::from_raw("grp_root"),
+            parent: Some(GroupId::from_raw("grp_parent")),
+            children: vec![GroupId::from_raw("grp_a"), GroupId::from_raw("grp_b")],
+            name: "Savings".into(),
+            notes: "n".into(),
+            tags: vec!["t".into()],
+        };
+        let dto = GroupDto::from(&group);
+        assert_eq!(
+            dto,
+            GroupDto {
+                id: "grp_root".into(),
+                parent: Some("grp_parent".into()),
+                children: vec!["grp_a".into(), "grp_b".into()],
+                name: "Savings".into(),
+                notes: "n".into(),
+                tags: vec!["t".into()],
+            }
+        );
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["parent"], "grp_parent");
+        assert_eq!(json["children"][0], "grp_a");
+    }
+
+    #[test]
+    fn root_group_has_null_parent() {
+        let group = Group {
+            id: GroupId::from_raw("grp_root"),
+            parent: None,
+            children: vec![],
+            name: "Root".into(),
+            notes: String::new(),
+            tags: vec![],
+        };
+        let dto = GroupDto::from(&group);
+        assert_eq!(dto.parent, None);
+        assert!(serde_json::to_value(&dto).unwrap()["parent"].is_null());
+    }
+
+    #[test]
+    fn signature_copies_components() {
+        let sig = daemon_wallet_evm::Signature {
+            r: U256::from(123u64),
+            s: U256::from(456u64),
+            y_parity: true,
+        };
+        assert_eq!(
+            SignatureDto::from(&sig),
+            SignatureDto {
+                r: U256::from(123u64),
+                s: U256::from(456u64),
+                y_parity: true,
+            }
+        );
     }
 }

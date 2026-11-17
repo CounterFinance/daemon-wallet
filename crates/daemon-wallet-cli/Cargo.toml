@@ -1,0 +1,28 @@
+[package]
+name = "daemon-wallet-cli"
+description = "Daemon Wallet management CLI (EVM POC): create/import/list/derive/sign/send"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "daemon-wallet-cli"
+path = "src/main.rs"
+
+[dependencies]
+daemon-wallet-core.workspace = true
+daemon-wallet-evm.workspace = true
+daemon-wallet-vault.workspace = true
+daemon-wallet-rpc.workspace = true
+daemon-wallet-config.workspace = true
+daemon-wallet-protocol.workspace = true
+clap.workspace = true
+rpassword.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+bip39 = { workspace = true, features = ["rand"] }
+serde_json.workspace = true
+# `daemon stop` sends SIGTERM to the serve daemon by pid. Pinned locally (not via
+# the root manifest, which another change owns).
+libc = "0.2"

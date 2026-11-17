@@ -1,0 +1,51 @@
+# cargo-deny configuration for the daemon-wallet Rust workspace.
+# Run with: cargo deny check
+
+[graph]
+all-features = true
+
+[advisories]
+# Known-vulnerable and unsound crates are always denied by cargo-deny.
+# Check the whole tree for unmaintained crates; warn (don't fail) on yanked.
+unmaintained = "all"
+yanked = "warn"
+# Documented, accepted residual risks — transitive, with no non-breaking fix for
+# this POC's pinned dependency stack. Revisit on each alloy bump.
+#  - RUSTSEC-2026-0387: constant-time timing variability in crypto-bigint 0.5.5,
+#    pulled by the k256 / elliptic-curve signing stack. The fix is a breaking
+#    crypto-bigint 0.6 bump the pinned alloy 2.5 / k256 stack does not yet use.
+#  - RUSTSEC-2024-0436: `paste` is unmaintained; a transitive proc-macro-only
+#    dependency (via ruint / alloy) with no runtime surface.
+ignore = [
+    "RUSTSEC-2026-0387",
+    "RUSTSEC-2024-0436",
+]
+
+[licenses]
+# Permissive licenses we accept across the dependency tree.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "ISC",
+    "Zlib",
+    # CC0-1.0: bip39, bitcoin_hashes, hex-conservative (public-domain dedication).
+    "CC0-1.0",
+    # CDLA-Permissive-2.0: webpki-roots (Mozilla CA certificate data).
+    "CDLA-Permissive-2.0",
+]
+# Minimum confidence for the license scanner to accept a detected license.
+confidence-threshold = 0.9
+
+[bans]
+# Multiple versions of the same crate are a warning, not a hard failure.
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+# Only crates.io is trusted as a registry source.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

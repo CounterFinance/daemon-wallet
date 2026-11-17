@@ -19,8 +19,15 @@
 //! All three reduce to signing a 32-byte digest via [`EvmSigner::sign_hash`], so
 //! the digest-construction rules live in one auditable place.
 
-use crate::error::Result;
-use alloy_primitives::{Address, B256, Bytes, U256};
+use crate::error::{Error, Result};
+use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope, TxLegacy};
+use alloy_dyn_abi::TypedData;
+use alloy_eips::eip2718::Encodable2718;
+use alloy_primitives::{
+    Address, B256, Bytes, Signature as AlloySignature, TxKind, U256, eip191_hash_message,
+};
+use alloy_signer::SignerSync;
+use alloy_signer_local::PrivateKeySigner;
 use daemon_wallet_vault::SecretBytes;
 
 /// The gas/fee shape of a transaction.
@@ -98,7 +105,26 @@ impl Signature {
     /// Render the signature as 65 bytes: `r` (32) ‖ `s` (32) ‖ `v` (1), where
     /// `v` is `27` or `28`.
     pub fn to_rsv(&self) -> [u8; 65] {
-        todo!()
+        let mut out = [0u8; 65];
+        out[0..32].copy_from_slice(&self.r.to_be_bytes::<32>());
+        out[32..64].copy_from_slice(&self.s.to_be_bytes::<32>());
+        out[64] = 27 + u8::from(self.y_parity);
+        out
+    }
+
+    /// Adapt an alloy `(r, s, y_parity)` signature into this crate's form.
+    pub(crate) fn from_alloy(sig: AlloySignature) -> Self {
+        Self {
+            r: sig.r(),
+            s: sig.s(),
+            y_parity: sig.v(),
+        }
+    }
+
+    /// Render this signature as alloy's `(r, s, y_parity)` form, for attaching
+    /// to a consensus transaction or recovering a signer.
+    pub(crate) fn to_alloy(self) -> AlloySignature {
+        AlloySignature::new(self.r, self.s, self.y_parity)
     }
 }
 
@@ -129,8 +155,9 @@ pub trait EvmSigner {
 /// secret bytes the wallet fetched from the vault, then sign. The key stays
 /// inside the signer and is never exposed.
 pub struct LocalSigner {
+    /// The alloy local signer that actually holds the secp256k1 key and signs.
+    inner: PrivateKeySigner,
     /// The address this signer controls, cached from the key.
-    #[allow(dead_code)]
     address: Address,
 }
 
@@ -140,33 +167,175 @@ impl LocalSigner {
     /// Fails with [`crate::Error::InvalidPrivateKey`] if the bytes are not a
     /// valid secp256k1 scalar.
     pub fn from_secret(secret: &SecretBytes) -> Result<Self> {
-        let _ = secret;
-        todo!()
+        let inner = PrivateKeySigner::from_slice(secret.as_slice())
+            .map_err(|_| Error::InvalidPrivateKey)?;
+        Ok(Self::from_private_key_signer(inner))
+    }
+
+    /// Wrap a concrete alloy [`PrivateKeySigner`] (for example one produced by
+    /// HD derivation in [`crate::evm_chain`]).
+    pub(crate) fn from_private_key_signer(inner: PrivateKeySigner) -> Self {
+        let address = inner.address();
+        Self { inner, address }
     }
 }
 
 impl EvmSigner for LocalSigner {
     fn address(&self) -> Address {
-        todo!()
+        self.address
     }
 
     fn sign_hash(&self, hash: B256) -> Result<Signature> {
-        let _ = hash;
-        todo!()
+        let sig = self
+            .inner
+            .sign_hash_sync(&hash)
+            .map_err(|_| Error::Signer)?;
+        Ok(Signature::from_alloy(sig))
     }
 
     fn sign_transaction(&self, tx: &TransactionRequest) -> Result<Signature> {
-        let _ = tx;
-        todo!()
+        let prepared = PreparedTx::try_from(tx)?;
+        self.sign_hash(prepared.signature_hash())
     }
 
     fn sign_message(&self, message: &[u8]) -> Result<Signature> {
-        let _ = message;
-        todo!()
+        // EIP-191 `personal_sign`: hash the "\x19Ethereum Signed Message:\n"
+        // framed message, then sign that 32-byte digest.
+        self.sign_hash(eip191_hash_message(message))
     }
 
     fn sign_typed_data(&self, typed: &TypedDataRequest) -> Result<Signature> {
-        let _ = typed;
-        todo!()
+        let hash = typed_data_hash(typed)?;
+        self.sign_hash(hash)
+    }
+}
+
+/// Compute the EIP-712 signing hash for a typed-data request.
+///
+/// Parses the canonical EIP-712 JSON and returns the 32-byte digest
+/// `keccak256(0x1901 ‖ domainSeparator ‖ hashStruct(message))`.
+fn typed_data_hash(typed: &TypedDataRequest) -> Result<B256> {
+    let data: TypedData =
+        serde_json::from_str(&typed.raw_json).map_err(|_| Error::InvalidPayload)?;
+    data.eip712_signing_hash()
+        .map_err(|_| Error::InvalidPayload)
+}
+
+/// A [`TransactionRequest`] mapped onto the concrete alloy consensus transaction
+/// it will be signed and broadcast as. Legacy and EIP-1559 are the two shapes
+/// this crate builds; both reduce to one signable digest.
+enum PreparedTx {
+    /// A pre-EIP-1559 legacy transaction.
+    Legacy(TxLegacy),
+    /// An EIP-1559 dynamic-fee transaction.
+    Eip1559(TxEip1559),
+}
+
+impl PreparedTx {
+    /// The 32-byte digest to sign for this transaction.
+    fn signature_hash(&self) -> B256 {
+        match self {
+            PreparedTx::Legacy(tx) => tx.signature_hash(),
+            PreparedTx::Eip1559(tx) => tx.signature_hash(),
+        }
+    }
+
+    /// Attach `signature` and fold into the broadcastable EIP-2718 envelope.
+    fn into_envelope(self, signature: AlloySignature) -> TxEnvelope {
+        match self {
+            PreparedTx::Legacy(tx) => TxEnvelope::Legacy(tx.into_signed(signature)),
+            PreparedTx::Eip1559(tx) => TxEnvelope::Eip1559(tx.into_signed(signature)),
+        }
+    }
+}
+
+impl TryFrom<&TransactionRequest> for PreparedTx {
+    type Error = Error;
+
+    fn try_from(tx: &TransactionRequest) -> Result<Self> {
+        let to = match tx.to {
+            Some(addr) => TxKind::Call(addr),
+            None => TxKind::Create,
+        };
+        Ok(match &tx.fee {
+            FeeParams::Legacy { gas_price } => PreparedTx::Legacy(TxLegacy {
+                chain_id: Some(tx.chain_id),
+                nonce: tx.nonce,
+                gas_price: u256_to_u128(*gas_price)?,
+                gas_limit: tx.gas_limit,
+                to,
+                value: tx.value,
+                input: tx.input.clone(),
+            }),
+            FeeParams::Eip1559 {
+                max_fee_per_gas,
+                max_priority_fee_per_gas,
+            } => PreparedTx::Eip1559(TxEip1559 {
+                chain_id: tx.chain_id,
+                nonce: tx.nonce,
+                gas_limit: tx.gas_limit,
+                max_fee_per_gas: u256_to_u128(*max_fee_per_gas)?,
+                max_priority_fee_per_gas: u256_to_u128(*max_priority_fee_per_gas)?,
+                to,
+                value: tx.value,
+                access_list: Default::default(),
+                input: tx.input.clone(),
+            }),
+        })
+    }
+}
+
+/// Narrow a fee value to the `u128` the consensus transaction types use, failing
+/// with [`Error::InvalidPayload`] rather than panicking on an out-of-range value.
+fn u256_to_u128(value: U256) -> Result<u128> {
+    u128::try_from(value).map_err(|_| Error::InvalidPayload)
+}
+
+/// RLP-encode a *signed* transaction into the raw bytes to broadcast.
+///
+/// `tx` describes the transaction and `signature` is the result of signing its
+/// [`EvmSigner::sign_transaction`] digest. The output is a ready-to-send EIP-2718
+/// payload: a legacy transaction is plain RLP with an EIP-155 `v`, while an
+/// EIP-1559 transaction is wrapped in its `0x02` typed envelope. This is what the
+/// rpc layer hands to `eth_sendRawTransaction`.
+///
+/// Fails with [`crate::Error::InvalidPayload`] if the request cannot be encoded.
+pub fn encode_signed_transaction(
+    tx: &TransactionRequest,
+    signature: &Signature,
+) -> Result<Vec<u8>> {
+    let prepared = PreparedTx::try_from(tx)?;
+    let envelope = prepared.into_envelope(signature.to_alloy());
+    Ok(envelope.encoded_2718())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_rsv_lays_out_r_s_v() {
+        let sig = Signature {
+            r: U256::from(1u8),
+            s: U256::from(2u8),
+            y_parity: true,
+        };
+        let rsv = sig.to_rsv();
+        assert_eq!(rsv[31], 1);
+        assert_eq!(rsv[63], 2);
+        assert_eq!(rsv[64], 28);
+
+        let even = Signature {
+            y_parity: false,
+            ..sig
+        };
+        assert_eq!(even.to_rsv()[64], 27);
+    }
+
+    #[test]
+    fn alloy_signature_round_trips() {
+        let original = AlloySignature::new(U256::from(123456u64), U256::from(789u64), true);
+        let mine = Signature::from_alloy(original);
+        assert_eq!(mine.to_alloy(), original);
     }
 }

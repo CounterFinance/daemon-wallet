@@ -13,4 +13,5 @@ daemon-wallet-core.workspace = true
 daemon-wallet-evm.workspace = true
 alloy-primitives.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true

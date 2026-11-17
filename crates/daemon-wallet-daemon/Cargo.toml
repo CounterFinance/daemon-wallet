@@ -1,0 +1,33 @@
+[package]
+name = "daemon-wallet-daemon"
+description = "Chrome Native Messaging host (EVM POC): speaks the extension JSON wire over stdio, holds the unlocked wallet for a session, and gates signing/broadcast behind terminal approval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "daemon-wallet-daemon"
+path = "src/main.rs"
+
+[dependencies]
+daemon-wallet-core.workspace = true
+daemon-wallet-evm.workspace = true
+daemon-wallet-vault.workspace = true
+daemon-wallet-rpc.workspace = true
+daemon-wallet-config.workspace = true
+daemon-wallet-protocol.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rpassword.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+# Unix signal handling so a killed `serve` daemon still removes its socket +
+# pidfile. Pinned locally (not via the root manifest, which another change owns).
+signal-hook = "0.3"
+
+[dev-dependencies]
+# dispatcher tests build a throwaway wallet from the anvil mnemonic in a tempdir
+tempfile = "3"
+bip39 = { workspace = true, features = ["rand"] }

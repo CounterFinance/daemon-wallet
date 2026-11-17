@@ -1,42 +1,141 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+.dw {
+  width: 320px;
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.dw-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.dw-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #111827;
+  color: #34d399;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 16px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.dw-head h1 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
 }
 
-.card {
-  padding: 2em;
+.dw-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--dw-muted);
 }
 
-.read-the-docs {
-  color: #888;
+.dw-badge {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.dw-badge-warn {
+  background: #78350f22;
+  border: 1px solid #b45309;
+  color: #f59e0b;
+}
+
+.dw-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--dw-panel);
+}
+
+.dw-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.dw-row span {
+  color: var(--dw-muted);
+}
+
+.dw-locked {
+  color: #f87171;
+}
+
+.dw-unlocked {
+  color: #34d399;
+}
+
+.dw-muted {
+  color: var(--dw-muted);
+}
+
+.dw-accounts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dw-accounts code {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dw-panel);
+  font-size: 13px;
+}
+
+.dw-btn {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #34d399;
+  color: #06251b;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dw-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dw-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dw-muted);
+}
+
+.dw-error {
+  margin: 0;
+  font-size: 12px;
+  color: #f87171;
+}
+
+.dw-link {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--dw-muted);
+  text-decoration: underline;
+  cursor: pointer;
 }

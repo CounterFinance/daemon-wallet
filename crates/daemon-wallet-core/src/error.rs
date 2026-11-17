@@ -38,6 +38,11 @@ pub enum Error {
     #[error("account not found")]
     AccountNotFound(AccountId),
 
+    /// An account already occupies the requested seed derivation index, so
+    /// deriving it again would duplicate an existing address.
+    #[error("an account already exists at this derivation index")]
+    AccountExists(AccountId),
+
     /// A group move was rejected because it would place a node inside its own
     /// subtree, which would sever that subtree from the root.
     #[error("group move would create a cycle")]

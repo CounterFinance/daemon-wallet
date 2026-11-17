@@ -1,0 +1,17 @@
+[package]
+name = "daemon-wallet-rpc"
+description = "Minimal Ethereum JSON-RPC client and EVM transaction assembly/broadcast for the daemon-wallet POC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+daemon-wallet-core.workspace = true
+daemon-wallet-evm.workspace = true
+alloy-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+hex.workspace = true

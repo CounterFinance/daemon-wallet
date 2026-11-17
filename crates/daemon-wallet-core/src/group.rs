@@ -73,8 +73,18 @@ pub struct GroupTree {
 impl GroupTree {
     /// Create a new tree containing only a root group with the given name.
     pub fn new(root_name: impl Into<String>) -> Self {
-        let _ = root_name;
-        todo!()
+        let root = GroupId::generate();
+        let node = Group {
+            id: root.clone(),
+            parent: None,
+            children: Vec::new(),
+            name: root_name.into(),
+            notes: String::new(),
+            tags: Vec::new(),
+        };
+        let mut nodes = BTreeMap::new();
+        nodes.insert(root.clone(), node);
+        Self { root, nodes }
     }
 
     /// The root group's id.
@@ -84,8 +94,7 @@ impl GroupTree {
 
     /// Borrow a group by id, or `None` if no such node exists.
     pub fn get(&self, id: &GroupId) -> Option<&Group> {
-        let _ = id;
-        todo!()
+        self.nodes.get(id)
     }
 
     /// Iterate over every group in the tree in id order.
@@ -98,8 +107,7 @@ impl GroupTree {
 
     /// The direct child ids of a group, or `None` if the group is unknown.
     pub fn children(&self, id: &GroupId) -> Option<&[GroupId]> {
-        let _ = id;
-        todo!()
+        self.nodes.get(id).map(|g| g.children.as_slice())
     }
 
     /// The chain of ids from the root down to and including `id`.
@@ -107,22 +115,55 @@ impl GroupTree {
     /// Returns `None` if the id is unknown. The first element is always the
     /// root and the last is always `id`.
     pub fn path_to(&self, id: &GroupId) -> Option<Vec<GroupId>> {
-        let _ = id;
-        todo!()
+        if !self.nodes.contains_key(id) {
+            return None;
+        }
+        let mut chain = Vec::new();
+        let mut cursor = Some(id.clone());
+        while let Some(current) = cursor {
+            let node = self.nodes.get(&current)?;
+            cursor = node.parent.clone();
+            chain.push(current);
+        }
+        chain.reverse();
+        Some(chain)
     }
 
     /// Add a new child group under `parent` and return its fresh id.
     ///
     /// Fails with [`crate::Error::GroupNotFound`] if `parent` does not exist.
     pub fn add(&mut self, parent: &GroupId, name: impl Into<String>) -> crate::Result<GroupId> {
-        let _ = (parent, name.into());
-        todo!()
+        if !self.nodes.contains_key(parent) {
+            return Err(crate::Error::GroupNotFound(parent.clone()));
+        }
+        let id = GroupId::generate();
+        let node = Group {
+            id: id.clone(),
+            parent: Some(parent.clone()),
+            children: Vec::new(),
+            name: name.into(),
+            notes: String::new(),
+            tags: Vec::new(),
+        };
+        self.nodes.insert(id.clone(), node);
+        // The parent is known to exist from the guard above.
+        self.nodes
+            .get_mut(parent)
+            .expect("parent checked present")
+            .children
+            .push(id.clone());
+        Ok(id)
     }
 
     /// Rename a group in place.
     pub fn rename(&mut self, id: &GroupId, name: impl Into<String>) -> crate::Result<()> {
-        let _ = (id, name.into());
-        todo!()
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.name = name.into();
+                Ok(())
+            }
+            None => Err(crate::Error::GroupNotFound(id.clone())),
+        }
     }
 
     /// Reparent `id` under `new_parent`, re-linking both parents' child lists.
@@ -131,8 +172,43 @@ impl GroupTree {
     /// [`crate::Error::GroupCycle`] if `new_parent` is `id` itself or any node
     /// in `id`'s own subtree.
     pub fn move_node(&mut self, id: &GroupId, new_parent: &GroupId) -> crate::Result<()> {
-        let _ = (id, new_parent);
-        todo!()
+        if *id == self.root {
+            return Err(crate::Error::RootImmutable);
+        }
+        if !self.nodes.contains_key(id) {
+            return Err(crate::Error::GroupNotFound(id.clone()));
+        }
+        if !self.nodes.contains_key(new_parent) {
+            return Err(crate::Error::GroupNotFound(new_parent.clone()));
+        }
+        // Moving a node under itself or any of its descendants would sever that
+        // subtree from the root. `new_parent` is inside `id`'s subtree exactly
+        // when `id` appears on the path from the root down to `new_parent`.
+        let target_path = self
+            .path_to(new_parent)
+            .expect("new_parent checked present");
+        if target_path.contains(id) {
+            return Err(crate::Error::GroupCycle);
+        }
+
+        let old_parent = self
+            .nodes
+            .get(id)
+            .expect("id checked present")
+            .parent
+            .clone();
+        if let Some(old) = old_parent
+            && let Some(old_node) = self.nodes.get_mut(&old)
+        {
+            old_node.children.retain(|c| c != id);
+        }
+        self.nodes.get_mut(id).expect("id checked present").parent = Some(new_parent.clone());
+        self.nodes
+            .get_mut(new_parent)
+            .expect("new_parent checked present")
+            .children
+            .push(id.clone());
+        Ok(())
     }
 
     /// Remove a leaf group.
@@ -143,7 +219,118 @@ impl GroupTree {
     /// wallet-level [`crate::Wallet::remove_group`] layers account-handling
     /// policy on top of this.
     pub fn remove(&mut self, id: &GroupId) -> crate::Result<Group> {
-        let _ = id;
-        todo!()
+        if *id == self.root {
+            return Err(crate::Error::RootImmutable);
+        }
+        let node = self
+            .nodes
+            .get(id)
+            .ok_or_else(|| crate::Error::GroupNotFound(id.clone()))?;
+        if !node.children.is_empty() {
+            return Err(crate::Error::GroupNotEmpty);
+        }
+        let parent = node.parent.clone();
+        if let Some(parent) = parent
+            && let Some(parent_node) = self.nodes.get_mut(&parent)
+        {
+            parent_node.children.retain(|c| c != id);
+        }
+        Ok(self.nodes.remove(id).expect("id checked present"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_tree_has_only_a_root() {
+        let tree = GroupTree::new("Root");
+        assert_eq!(tree.iter().count(), 1);
+        assert_eq!(tree.get(tree.root()).unwrap().name, "Root");
+        assert!(tree.get(tree.root()).unwrap().parent.is_none());
+    }
+
+    #[test]
+    fn add_links_parent_and_child() {
+        let mut tree = GroupTree::new("Root");
+        let root = tree.root().clone();
+        let child = tree.add(&root, "Child").unwrap();
+        assert_eq!(tree.children(&root).unwrap(), std::slice::from_ref(&child));
+        assert_eq!(tree.get(&child).unwrap().parent, Some(root));
+    }
+
+    #[test]
+    fn add_under_missing_parent_fails() {
+        let mut tree = GroupTree::new("Root");
+        let err = tree.add(&GroupId::from_raw("nope"), "x").unwrap_err();
+        assert!(matches!(err, crate::Error::GroupNotFound(_)));
+    }
+
+    #[test]
+    fn path_to_runs_root_to_node() {
+        let mut tree = GroupTree::new("Root");
+        let root = tree.root().clone();
+        let a = tree.add(&root, "A").unwrap();
+        let b = tree.add(&a, "B").unwrap();
+        assert_eq!(tree.path_to(&b).unwrap(), vec![root, a, b]);
+        assert!(tree.path_to(&GroupId::from_raw("nope")).is_none());
+    }
+
+    #[test]
+    fn move_node_relinks_both_parents() {
+        let mut tree = GroupTree::new("Root");
+        let root = tree.root().clone();
+        let a = tree.add(&root, "A").unwrap();
+        let b = tree.add(&root, "B").unwrap();
+        let c = tree.add(&a, "C").unwrap();
+        tree.move_node(&c, &b).unwrap();
+        assert_eq!(tree.get(&c).unwrap().parent, Some(b.clone()));
+        assert!(tree.children(&a).unwrap().is_empty());
+        assert_eq!(tree.children(&b).unwrap(), &[c]);
+    }
+
+    #[test]
+    fn move_node_rejects_cycles_and_root() {
+        let mut tree = GroupTree::new("Root");
+        let root = tree.root().clone();
+        let a = tree.add(&root, "A").unwrap();
+        let b = tree.add(&a, "B").unwrap();
+        // Moving A under its own descendant B must be rejected.
+        assert!(matches!(
+            tree.move_node(&a, &b).unwrap_err(),
+            crate::Error::GroupCycle
+        ));
+        // Moving A under itself must be rejected.
+        assert!(matches!(
+            tree.move_node(&a, &a).unwrap_err(),
+            crate::Error::GroupCycle
+        ));
+        // The root cannot be moved.
+        assert!(matches!(
+            tree.move_node(&root, &a).unwrap_err(),
+            crate::Error::RootImmutable
+        ));
+    }
+
+    #[test]
+    fn remove_unlinks_leaf_and_refuses_non_empty() {
+        let mut tree = GroupTree::new("Root");
+        let root = tree.root().clone();
+        let a = tree.add(&root, "A").unwrap();
+        let _b = tree.add(&a, "B").unwrap();
+        assert!(matches!(
+            tree.remove(&a).unwrap_err(),
+            crate::Error::GroupNotEmpty
+        ));
+        assert!(matches!(
+            tree.remove(&root).unwrap_err(),
+            crate::Error::RootImmutable
+        ));
+        // The leaf B can go, which then lets A go.
+        let leaf = tree.children(&a).unwrap()[0].clone();
+        tree.remove(&leaf).unwrap();
+        tree.remove(&a).unwrap();
+        assert!(tree.children(&root).unwrap().is_empty());
     }
 }

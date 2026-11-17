@@ -4,6 +4,18 @@
 
 > **Heavily vibecoded project, use at your own risk.** Sometimes I type bugs by hand in here, to be a bit real.
 
+## Implementations
+
+There are two generations of this wallet in the repo:
+
+- **`crates/`: the active Rust workspace.** This is where development happens.
+  It reimplements the wallet behind a layered, chain-agnostic design
+  (`vault -> core -> evm -> protocol`). To build and run it (CLI, TUI, daemon),
+  see [`POC_HOWTO.md`](POC_HOWTO.md); for the design, [`ARCHITECTURE.md`](ARCHITECTURE.md).
+- **`packages/`: the reference JS/TS POC.** The original proof of concept that
+  the Rust port is derived from. It is kept as the working reference, not the
+  forward path; the instructions below still describe it.
+
 ## Overview
 
 Daemon Wallet implements a secure wallet architecture where private keys are managed by a CLI application that communicates with a Chrome extension via Native Messaging. This follows the security model pioneered by KeePassXC.

@@ -61,14 +61,12 @@ pub const MANIFEST_ENTRY_ID: &str = "wallet/manifest";
 /// Deterministic in the seed id, so no separate index is needed to find a
 /// seed's secret.
 pub fn seed_entry_id(seed: &SeedId) -> String {
-    let _ = seed;
-    todo!()
+    format!("seed/{}", seed.as_str())
 }
 
 /// The vault entry id holding the private key for a given imported key.
 pub fn key_entry_id(key: &KeyId) -> String {
-    let _ = key;
-    todo!()
+    format!("key/{}", key.as_str())
 }
 
 /// The full non-secret state of a wallet, serialised as one CBOR blob.
@@ -93,15 +91,22 @@ pub struct WalletManifest {
 impl WalletManifest {
     /// Build an empty manifest whose tree is a single root group.
     pub fn new(root_group_name: impl Into<String>) -> Self {
-        let _ = root_group_name;
-        todo!()
+        Self {
+            version: MANIFEST_VERSION,
+            tree: GroupTree::new(root_group_name),
+            seeds: BTreeMap::new(),
+            keys: BTreeMap::new(),
+            accounts: BTreeMap::new(),
+        }
     }
 
     /// Encode the manifest to CBOR for storage in the manifest vault entry.
     ///
     /// Fails with [`crate::Error::ManifestEncode`] on an encoding error.
     pub fn encode(&self) -> crate::Result<Vec<u8>> {
-        todo!()
+        let mut buf = Vec::new();
+        ciborium::into_writer(self, &mut buf).map_err(|_| crate::Error::ManifestEncode)?;
+        Ok(buf)
     }
 
     /// Decode a manifest from the CBOR bytes read out of the vault.
@@ -110,7 +115,63 @@ impl WalletManifest {
     /// manifest, or [`crate::Error::ManifestVersion`] if the stored version is
     /// newer than [`MANIFEST_VERSION`].
     pub fn decode(bytes: &[u8]) -> crate::Result<Self> {
-        let _ = bytes;
-        todo!()
+        let manifest: WalletManifest =
+            ciborium::from_reader(bytes).map_err(|_| crate::Error::ManifestDecode)?;
+        if manifest.version > MANIFEST_VERSION {
+            return Err(crate::Error::ManifestVersion(manifest.version));
+        }
+        Ok(manifest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::id::{KeyId, SeedId};
+
+    #[test]
+    fn entry_ids_are_deterministic_and_namespaced() {
+        let seed = SeedId::from_raw("seed_abc");
+        let key = KeyId::from_raw("key_xyz");
+        assert_eq!(seed_entry_id(&seed), "seed/seed_abc");
+        assert_eq!(key_entry_id(&key), "key/key_xyz");
+    }
+
+    #[test]
+    fn new_manifest_is_empty_with_one_root() {
+        let m = WalletManifest::new("Root");
+        assert_eq!(m.version, MANIFEST_VERSION);
+        assert_eq!(m.tree.iter().count(), 1);
+        assert!(m.seeds.is_empty());
+        assert!(m.keys.is_empty());
+        assert!(m.accounts.is_empty());
+    }
+
+    #[test]
+    fn encode_decode_round_trips() {
+        let m = WalletManifest::new("Root");
+        let bytes = m.encode().unwrap();
+        let back = WalletManifest::decode(&bytes).unwrap();
+        assert_eq!(back.version, m.version);
+        assert_eq!(back.tree.root(), m.tree.root());
+    }
+
+    #[test]
+    fn decode_rejects_a_future_version() {
+        let mut m = WalletManifest::new("Root");
+        m.version = MANIFEST_VERSION + 1;
+        let bytes = m.encode().unwrap();
+        assert!(matches!(
+            WalletManifest::decode(&bytes).unwrap_err(),
+            crate::Error::ManifestVersion(v) if v == MANIFEST_VERSION + 1
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_garbage() {
+        assert!(matches!(
+            WalletManifest::decode(&[0xff, 0x00, 0x13, 0x37]).unwrap_err(),
+            crate::Error::ManifestDecode
+        ));
     }
 }

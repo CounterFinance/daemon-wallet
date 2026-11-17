@@ -71,8 +71,54 @@ pub enum DerivationScheme {
 impl DerivationScheme {
     /// Resolve the concrete [`DerivationPath`] for a given account index.
     pub fn path_for(&self, index: u32) -> DerivationPath {
-        let _ = index;
-        todo!()
+        let path = match self {
+            DerivationScheme::Bip44Standard => format!("m/44'/60'/0'/0/{index}"),
+            DerivationScheme::Bip44LedgerLive => format!("m/44'/60'/{index}'/0/0"),
+            DerivationScheme::Custom { template } => {
+                template.replace("{index}", &index.to_string())
+            }
+        };
+        DerivationPath::from_raw(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_bip44_varies_the_address_index() {
+        assert_eq!(
+            DerivationScheme::Bip44Standard.path_for(0).as_str(),
+            "m/44'/60'/0'/0/0"
+        );
+        assert_eq!(
+            DerivationScheme::Bip44Standard.path_for(7).as_str(),
+            "m/44'/60'/0'/0/7"
+        );
+    }
+
+    #[test]
+    fn ledger_live_varies_the_account_field() {
+        assert_eq!(
+            DerivationScheme::Bip44LedgerLive.path_for(3).as_str(),
+            "m/44'/60'/3'/0/0"
+        );
+    }
+
+    #[test]
+    fn custom_substitutes_the_index_placeholder() {
+        let scheme = DerivationScheme::Custom {
+            template: "m/44'/501'/{index}'".to_string(),
+        };
+        assert_eq!(scheme.path_for(9).as_str(), "m/44'/501'/9'");
+    }
+
+    #[test]
+    fn derivation_path_debug_hides_nothing_but_is_wrapped() {
+        let p = DerivationPath::from_raw("m/44'/60'/0'/0/0");
+        assert_eq!(format!("{p:?}"), "DerivationPath(m/44'/60'/0'/0/0)");
+        assert_eq!(p.to_string(), "m/44'/60'/0'/0/0");
     }
 }
 

@@ -36,4 +36,5 @@ pub use evm_chain::{
 };
 pub use signer::{
     EvmSigner, FeeParams, LocalSigner, Signature, TransactionRequest, TypedDataRequest,
+    encode_signed_transaction,
 };

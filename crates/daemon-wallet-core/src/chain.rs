@@ -187,24 +187,105 @@ impl ChainRegistry {
     ///
     /// Returns any implementation it displaced for that family.
     pub fn register(&mut self, chain: Box<dyn Chain>) -> Option<Box<dyn Chain>> {
-        let _ = chain;
-        todo!()
+        self.chains.insert(chain.kind(), chain)
     }
 
     /// Borrow the implementation for a family, or `None` if none is registered.
     pub fn get(&self, kind: ChainKind) -> Option<&dyn Chain> {
-        let _ = kind;
-        todo!()
+        self.chains.get(&kind).map(|boxed| boxed.as_ref())
     }
 
     /// Whether a family has an implementation registered.
     pub fn contains(&self, kind: ChainKind) -> bool {
-        let _ = kind;
-        todo!()
+        self.chains.contains_key(&kind)
     }
 
     /// The families that currently have an implementation registered.
     pub fn kinds(&self) -> Vec<ChainKind> {
         self.chains.keys().copied().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A trivial [`Chain`] that fakes derivation and signing deterministically,
+    /// so the registry and payload plumbing can be exercised without a real
+    /// chain crate.
+    struct MockChain;
+
+    impl Chain for MockChain {
+        fn kind(&self) -> ChainKind {
+            ChainKind::Evm
+        }
+
+        fn derive_address(
+            &self,
+            seed_material: &[u8],
+            path: &DerivationPath,
+        ) -> crate::Result<ChainAddress> {
+            Ok(ChainAddress::new(format!(
+                "0x{}-{}",
+                seed_material.len(),
+                path.as_str()
+            )))
+        }
+
+        fn import_address(&self, private_key: &[u8]) -> crate::Result<ChainAddress> {
+            Ok(ChainAddress::new(format!("0xpk{}", private_key.len())))
+        }
+
+        fn sign(
+            &self,
+            _secret: AccountSecret<'_>,
+            payload: &SigningPayload,
+        ) -> crate::Result<Vec<u8>> {
+            Ok(payload.body.clone())
+        }
+
+        fn parse_address(&self, text: &str) -> crate::Result<ChainAddress> {
+            Ok(ChainAddress::new(text))
+        }
+
+        fn format_address(&self, address: &ChainAddress) -> String {
+            address.as_str().to_string()
+        }
+    }
+
+    #[test]
+    fn register_get_contains_kinds() {
+        let mut reg = ChainRegistry::new();
+        assert!(!reg.contains(ChainKind::Evm));
+        assert!(reg.get(ChainKind::Evm).is_none());
+        assert!(reg.kinds().is_empty());
+
+        let displaced = reg.register(Box::new(MockChain));
+        assert!(displaced.is_none());
+        assert!(reg.contains(ChainKind::Evm));
+        assert_eq!(reg.get(ChainKind::Evm).unwrap().kind(), ChainKind::Evm);
+        assert_eq!(reg.kinds(), vec![ChainKind::Evm]);
+    }
+
+    #[test]
+    fn register_returns_the_displaced_implementation() {
+        let mut reg = ChainRegistry::new();
+        reg.register(Box::new(MockChain));
+        let displaced = reg.register(Box::new(MockChain));
+        assert!(displaced.is_some());
+    }
+
+    #[test]
+    fn chain_address_is_opaque_text() {
+        let addr = ChainAddress::new("0xABC");
+        assert_eq!(addr.as_str(), "0xABC");
+        assert_eq!(format!("{addr:?}"), "ChainAddress(0xABC)");
+    }
+
+    #[test]
+    fn chain_address_display_is_the_raw_text() {
+        assert_eq!(format!("{}", ChainAddress::new("0xabc")), "0xabc");
+        // A differently-cased value must render exactly, not as empty output.
+        assert_eq!(ChainAddress::new("0xDeAdBeEf").to_string(), "0xDeAdBeEf");
     }
 }
